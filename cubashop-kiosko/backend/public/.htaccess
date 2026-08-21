@@ -1,3 +1,6 @@
+Options -Indexes
+DirectoryIndex api.php
+
 RewriteEngine On
 
 # Never expose environment/config files through the public directory.
