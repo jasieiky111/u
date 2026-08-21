@@ -11,14 +11,46 @@ require_once __DIR__ . '/../app/ReportService.php';
 require_once __DIR__ . '/../app/InventoryService.php';
 require_once __DIR__ . '/../app/CancellationService.php';
 
-$env=['DB_HOST'=>getenv('DB_HOST')?:'127.0.0.1','DB_PORT'=>getenv('DB_PORT')?:'3306','DB_DATABASE'=>getenv('DB_DATABASE')?:'cubashop_kiosko','DB_USERNAME'=>getenv('DB_USERNAME')?:'cubashop','DB_PASSWORD'=>getenv('DB_PASSWORD')?:'','API_SECRET'=>getenv('API_SECRET')?:''];
-$path=parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH)?:'/'; $method=strtoupper($_SERVER['REQUEST_METHOD']??'GET');
-if($path==='/health'&&$method==='GET') Api::json(['ok'=>true,'service'=>'cubashop-kiosko-api','version'=>'0.4.0','currency'=>'CUP','public_checkout'=>false]);
-if($path==='/login'&&$method==='POST') Auth::requireApiSecret($env);
-$db=(new Database($env))->pdo(); $service=new KioskoService($db); $cash=new CashService($db); $reports=new ReportService($db); $inventory=new InventoryService($db); $cancel=new CancellationService($db);
+$configFile = __DIR__ . '/../config.php';
+$env = is_file($configFile) ? require $configFile : [];
+$env = is_array($env) ? $env : [];
+$env += [
+    'DB_HOST'=>getenv('DB_HOST') ?: '127.0.0.1',
+    'DB_PORT'=>getenv('DB_PORT') ?: '3306',
+    'DB_DATABASE'=>getenv('DB_DATABASE') ?: 'cubashop_kiosko',
+    'DB_USERNAME'=>getenv('DB_USERNAME') ?: 'cubashop',
+    'DB_PASSWORD'=>getenv('DB_PASSWORD') ?: '',
+    'API_SECRET'=>getenv('API_SECRET') ?: '',
+    'CORS_ORIGIN'=>getenv('CORS_ORIGIN') ?: '',
+];
+
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($origin !== '' && $env['CORS_ORIGIN'] !== '' && hash_equals((string)$env['CORS_ORIGIN'], $origin)) {
+    header('Access-Control-Allow-Origin: '.$origin);
+    header('Vary: Origin');
+    header('Access-Control-Allow-Headers: Authorization, Content-Type');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+}
+if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(204); exit; }
+
+$path=parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH)?:'/';
+$method=strtoupper($_SERVER['REQUEST_METHOD']??'GET');
+if($path==='/health'&&$method==='GET') Api::json(['ok'=>true,'service'=>'cubashop-kiosko-api','version'=>'0.5.0','currency'=>'CUP','public_checkout'=>false]);
+
+if($path==='/login'&&$method==='POST') {
+    if ((string)$env['API_SECRET'] === '') Api::json(['ok'=>false,'error'=>'server_not_configured'],503);
+    $db=(new Database($env))->pdo();
+    $service=new KioskoService($db);
+    $b=Api::body();
+    $u=$service->login((string)($b['username']??''),(string)($b['password']??''));
+    if(!$u) Api::json(['ok'=>false,'error'=>'invalid_credentials'],401);
+    Api::json(['ok'=>true,'user'=>$u,'token'=>Auth::issueUserToken($u,(string)$env['API_SECRET'])]);
+}
+
+$user=Auth::requireUser($env);
+$db=(new Database($env))->pdo();
+$service=new KioskoService($db); $cash=new CashService($db); $reports=new ReportService($db); $inventory=new InventoryService($db); $cancel=new CancellationService($db);
 try {
- if($path==='/login'&&$method==='POST'){ $b=Api::body(); $u=$service->login((string)($b['username']??''),(string)($b['password']??'')); if(!$u) Api::json(['ok'=>false,'error'=>'invalid_credentials'],401); Api::json(['ok'=>true,'user'=>$u,'token'=>Auth::issueUserToken($u,(string)$env['API_SECRET'])]); }
- $user=Auth::requireUser($env);
  if($path==='/products'&&$method==='GET') Api::json(['ok'=>true,'data'=>$service->products()]);
  if($path==='/products'&&$method==='POST'){ Authorization::requireRole($user,['kiosk_admin','server_admin']); $b=Api::body(); Api::json(['ok'=>true,'product_id'=>$inventory->create((int)$user['id'],trim((string)($b['sku']??'')),trim((string)($b['name']??'')),(float)($b['price_cup']??0),(float)($b['stock']??0))],201); }
  if($path==='/inventory/adjust'&&$method==='POST'){ Authorization::requireRole($user,['kiosk_admin','server_admin']); $b=Api::body(); $inventory->adjust((int)$user['id'],(int)($b['product_id']??0),(float)($b['delta']??0)); Api::json(['ok'=>true]); }
