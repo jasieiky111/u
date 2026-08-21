@@ -1,0 +1,29 @@
+name: CubaShop Kiosko PHP
+
+on:
+  push:
+    paths:
+      - 'cubashop-kiosko/backend/**'
+      - '.github/workflows/kiosko-php.yml'
+  pull_request:
+    paths:
+      - 'cubashop-kiosko/backend/**'
+      - '.github/workflows/kiosko-php.yml'
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo, pdo_mysql, json, mbstring
+      - name: Lint PHP
+        run: |
+          find cubashop-kiosko/backend -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Smoke test
+        run: php cubashop-kiosko/backend/tests/smoke.php
