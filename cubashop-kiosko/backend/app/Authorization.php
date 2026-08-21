@@ -5,8 +5,7 @@ final class Authorization
 {
     public static function requireRole(array $user, array $allowed): void
     {
-        $role = (string)($user['role'] ?? '');
-        if (!in_array($role, $allowed, true)) {
+        if (!in_array((string)($user['role'] ?? ''), $allowed, true)) {
             Api::json(['ok'=>false,'error'=>'forbidden'],403);
         }
     }
